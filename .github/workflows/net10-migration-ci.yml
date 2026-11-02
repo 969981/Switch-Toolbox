@@ -1,10 +1,10 @@
 name: Build and release Switch-Toolbox .NET 10 (migration)
 on:
   push:
-    branches: [net10-slnx]
+    branches: [net10-slnx, net10-deps-refresh]
   workflow_dispatch:
   pull_request:
-    branches: [master]
+    branches: [master, net10-slnx]
 permissions:
   contents: read
 concurrency:
@@ -54,6 +54,18 @@ jobs:
           if (Test-Path "$out/BrawlboxHelper.dll") {
             Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
           }
+          # Do not ship the old 3.0.1 OpenTK DLLs from the tracked Lib folder.
+          foreach ($dll in @('OpenTK.dll', 'OpenTK.GLControl.dll')) {
+            $root = Join-Path $out $dll
+            if (!(Test-Path $root)) { throw "NuGet $dll is missing from publish root" }
+            $actual = [System.Reflection.AssemblyName]::GetAssemblyName($root).Version
+            if ($actual.Major -ne 3 -or $actual.Minor -ne 3 -or $actual.Build -ne 3) {
+              throw "$dll has unexpected version $actual (expected 3.3.3.x)"
+            }
+            Copy-Item $root (Join-Path $out "Lib/$dll") -Force
+            $pluginCopy = Join-Path $out "Lib/Plugins/$dll"
+            if (Test-Path $pluginCopy) { Copy-Item $root $pluginCopy -Force }
+          }
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
       - name: Runtime and format smoke test (Windows)
         shell: pwsh
@@ -68,7 +80,7 @@ jobs:
           if-no-files-found: error
   release:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/net10-slnx'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/net10-slnx' || github.ref == 'refs/heads/net10-deps-refresh')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -83,10 +95,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="net10-${GITHUB_SHA:0:12}"
+          if [[ "$GITHUB_REF_NAME" == "net10-deps-refresh" ]]; then
+            tag="net10-deps-${GITHUB_SHA:0:12}"
+            title="Switch-Toolbox .NET 10 OpenTK 3.3.3 (experimental)"
+            notes="Experimental dependency upgrade: OpenTK + GLControl 3.3.3 from NuGet. CI checks compilation, published DLL versions, format smoke and plugin discovery; real Windows OpenGL rendering and BFRES/BNTX files remain unvalidated."
+          else
+            tag="net10-${GITHUB_SHA:0:12}"
+            title="Switch-Toolbox .NET 10 (experimental)"
+            notes="Experimental .NET 10 Windows build; requires compatibility testing with legacy plugins and native DLLs."
+          fi
           gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
           gh release create "$tag" "dist/Switch-Toolbox-net10-win-x64.zip" \
             -R "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "Switch-Toolbox .NET 10 (experimental)" \
-            --notes "Experimental .NET 10 Windows build; requires compatibility testing with legacy plugins and native DLLs." \
+            --target "$GITHUB_SHA" --title "$title" \
+            --notes "$notes" \
             --prerelease

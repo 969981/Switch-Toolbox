@@ -120,16 +120,6 @@
       <HintPath>..\Toolbox\Lib\Octokit.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="OpenTK">
-      <HintPath>..\Toolbox\Lib\OpenTK.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="OpenTK.GLControl">
-      <HintPath>..\Toolbox\Lib\OpenTK.GLControl.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    
-    
     <Reference Include="SARCExt, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\Toolbox\Lib\SARCExt.dll</HintPath>
@@ -1562,5 +1552,8 @@
   
     <ItemGroup>
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
-  </ItemGroup>
+      <!-- OpenTK 3.x API-compatible experiment; do not switch to OpenTK 4 without renderer migration. -->
+    <PackageReference Include="OpenTK" Version="3.3.3" />
+    <PackageReference Include="OpenTK.GLControl" Version="3.3.3" />
+</ItemGroup>
 </Project>

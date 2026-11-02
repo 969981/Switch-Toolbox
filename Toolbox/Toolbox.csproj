@@ -75,16 +75,6 @@
       <HintPath>Lib\Octokit.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="OpenTK, Version=3.0.1.0, Culture=neutral, PublicKeyToken=bad199fe84eb3df4, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>Lib\OpenTK.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="OpenTK.GLControl, Version=3.0.1.0, Culture=neutral, PublicKeyToken=bad199fe84eb3df4, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>Lib\OpenTK.GLControl.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="Syroot.NintenTools.NSW.Bntx"><HintPath>Lib\Syroot.NintenTools.NSW.Bntx.dll</HintPath></Reference>
     
     
@@ -572,12 +562,6 @@
     <Content Include="Lib\Octokit.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Lib\OpenTK.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Lib\OpenTK.GLControl.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="Lib\PakFileIDs\PakContents.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -729,7 +713,10 @@
     <Content Include="Version.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-  </ItemGroup>
+      <!-- OpenTK 3.x API-compatible experiment; do not switch to OpenTK 4 without renderer migration. -->
+    <PackageReference Include="OpenTK" Version="3.3.3" />
+    <PackageReference Include="OpenTK.GLControl" Version="3.3.3" />
+</ItemGroup>
   <ItemGroup />
   
   </Project>
