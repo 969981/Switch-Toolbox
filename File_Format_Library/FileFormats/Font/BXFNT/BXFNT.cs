@@ -170,10 +170,8 @@ namespace FirstPlugin
                 ImageKey = "fileBlank";
                 SelectedImageKey = "fileBlank";
 
-                ContextMenu = new ContextMenu();
-                MenuItem export = new MenuItem("Export");
-                ContextMenu.MenuItems.Add(export);
-                export.Click += Export;
+                ContextMenuStrip = new ContextMenuStrip();
+                ContextMenuStrip.Items.Add("Export", null, Export);
 
             }
             public byte[] data;
