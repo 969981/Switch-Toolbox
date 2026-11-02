@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="net10-${GITHUB_SHA:0:12}"
-          gh release view "$tag" >/dev/null 2>&1 && exit 0
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
           gh release create "$tag" "dist/Switch-Toolbox-net10-win-x64.zip" \
             --target "$GITHUB_SHA" --title "Switch-Toolbox .NET 10 (experimental)" \
             --notes "Experimental .NET 10 Windows build; requires compatibility testing with legacy plugins and native DLLs." \
