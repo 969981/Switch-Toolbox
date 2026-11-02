@@ -1,0 +1,130 @@
+name: Sync upstream into .NET 10 migration and publish on successful build
+
+on:
+  schedule:
+    # GitHub schedules only run on the repository default branch.
+    - cron: "14,24,34,44,54,4 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: switch-toolbox-net10-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      publish: ${{ steps.sync.outputs.publish }}
+      build_sha: ${{ steps.sync.outputs.build_sha }}
+      upstream_sha: ${{ steps.sync.outputs.upstream_sha }}
+      tag: ${{ steps.sync.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: net10-slnx
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Merge upstream without overwriting migration
+        id: sync
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/KillzXGaming/Switch-Toolbox.git
+          git fetch --no-tags upstream master
+          upstream_sha="$(git rev-parse FETCH_HEAD)"
+          changed=false
+          if ! git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            # A conflicting upstream change must be handled by a human.
+            # Never force-push or overwrite the .NET 10 migration commits.
+            git merge --no-edit "$upstream_sha"
+            git push origin HEAD:net10-slnx
+            changed=true
+          fi
+          build_sha="$(git rev-parse HEAD)"
+          tag="net10-${build_sha:0:12}"
+          publish=false
+          if [[ "$changed" == true || "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              publish=true
+            fi
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "build_sha=$build_sha" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: sync
+    if: needs.sync.outputs.publish == 'true'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync.outputs.build_sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build full .NET 10 solution
+        shell: pwsh
+        run: |
+          dotnet restore Toolbox.slnx --disable-parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build Toolbox.slnx -c Release --no-restore -v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish and verify Windows x64 files
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained false -o "$out"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "$out/Toolbox.exe")) { throw "Missing Toolbox.exe" }
+          if (!(Test-Path "$out/Toolbox.Library.dll")) { throw "Missing Toolbox.Library.dll" }
+          Copy-Item Toolbox/Lib "$out/Lib" -Recurse -Force
+          if (Test-Path Toolbox/Shader) { Copy-Item Toolbox/Shader "$out/Shader" -Recurse -Force }
+          Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Switch-Toolbox-net10-win-x64
+          path: ${{ runner.temp }}/Switch-Toolbox-net10-win-x64.zip
+          if-no-files-found: error
+
+  release:
+    needs: [sync, build]
+    if: needs.sync.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Switch-Toolbox-net10-win-x64
+          path: dist
+      - name: Create experimental GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.sync.outputs.tag }}
+          SHA: ${{ needs.sync.outputs.build_sha }}
+          UPSTREAM_SHA: ${{ needs.sync.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          test -s dist/Switch-Toolbox-net10-win-x64.zip
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            exit 0
+          fi
+          printf 'Experimental .NET 10 Windows build; runtime plugin compatibility is not guaranteed.\n\nUpstream commit: %s\nBuild commit: %s\n' "$UPSTREAM_SHA" "$SHA" > release-notes.md
+          gh release create "$TAG" "dist/Switch-Toolbox-net10-win-x64.zip" \
+            -R "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "Switch-Toolbox .NET 10 ($TAG)" \
+            --notes-file release-notes.md \
+            --prerelease
