@@ -28,3 +28,10 @@ Run from the **published win-x64 folder** with `Toolbox.exe --migration-smoke`. 
 3. Export, import, save, reopen and compare content/hash semantics.
 4. Verify plugins, native bridges, compression and audio playback.
 5. Confirm file type selection, error handling and memory behavior after repeated operations.
+
+## CI observations and corrections
+- Initial build with these PackageReferences compiled and published under .NET 10.
+- Plugin discovery passed on the Windows CI runner.
+- The first BNTX test threw `ObjectDisposedException` because legacy `Save(Stream)` closes the passed stream; use `MemoryStream.ToArray()` after save (allowed even when disposed).
+- The first BFRES UI wrapper test threw without a GUI `ObjectEditor` while setting `DrawableContainer.Name`; parser/serializer checks now use the underlying `Syroot.NintenTools.NSW.Bfres.ResFile` without pretending to validate GL rendering.
+- Use `dotnet Toolbox.dll --migration-smoke` to wait for the Windows GUI-targeting executable process and reliably receive its exit code.

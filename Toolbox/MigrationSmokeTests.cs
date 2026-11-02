@@ -67,9 +67,11 @@ namespace Toolbox
                 }
                 using var output = new MemoryStream();
                 format.Save(output);
-                if (output.Length < 64) throw new InvalidDataException("BNTX output empty");
+                // The legacy Save method owns and closes the passed stream.
+                byte[] saved = output.ToArray();
+                if (saved.Length < 64) throw new InvalidDataException("BNTX output empty");
                 var next = new FirstPlugin.BNTX();
-                using var check = new MemoryStream(output.ToArray());
+                using var check = new MemoryStream(saved);
                 if (!next.Identify(check)) throw new InvalidDataException("BNTX round-trip signature invalid");
                 check.Position = 0;
                 next.Load(check);
@@ -80,18 +82,27 @@ namespace Toolbox
                 if (create == null) throw new MissingMethodException("CreateNewBFRESSwitch");
                 byte[] bytes = (byte[])create.Invoke(null, new object[] { "MigrationSmoke.bfres" });
                 if (bytes.Length < 64) throw new InvalidDataException("BFRES too small");
+                // The BFRES UI wrapper requires an ObjectEditor/GL context. Exercise the
+                // underlying parser and serializer without creating UI controls.
                 var format = new FirstPlugin.BFRES();
                 using (var input = new MemoryStream(bytes))
                 {
                     if (!format.Identify(input)) throw new InvalidDataException("BFRES signature invalid");
-                    input.Position = 0;
-                    format.Load(input);
                 }
+                var resolver = Assembly.LoadFrom(Path.Combine(root, "Lib", "Syroot.NintenTools.NSW.Bfres.dll"));
+                var resourceType = resolver.GetType("Syroot.NintenTools.NSW.Bfres.ResFile", true);
+                var constructor = resourceType.GetConstructor(new[] { typeof(Stream) });
+                if (constructor == null) throw new MissingMethodException(resourceType.FullName, ".ctor(Stream)");
+                var parsed = constructor.Invoke(new object[] { new MemoryStream(bytes) });
+                var save = resourceType.GetMethod("Save", new[] { typeof(Stream) });
+                if (save == null) throw new MissingMethodException(resourceType.FullName, "Save(Stream)");
                 using var output = new MemoryStream();
-                format.Save(output);
-                if (output.Length < 64) throw new InvalidDataException("BFRES output empty");
-                using var check = new MemoryStream(output.ToArray());
+                save.Invoke(parsed, new object[] { output });
+                byte[] saved = output.ToArray();
+                if (saved.Length < 64) throw new InvalidDataException("BFRES output empty");
+                using var check = new MemoryStream(saved);
                 if (!(new FirstPlugin.BFRES()).Identify(check)) throw new InvalidDataException("BFRES round-trip signature invalid");
+                constructor.Invoke(new object[] { new MemoryStream(saved) });
             });
             Console.WriteLine("Migration smoke failures: " + _failures);
             return _failures == 0 ? 0 : 1;

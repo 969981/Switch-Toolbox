@@ -59,7 +59,7 @@ jobs:
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP/Toolbox-net10"
-          & "$out/Toolbox.exe" --migration-smoke
+          & dotnet "$out/Toolbox.dll" --migration-smoke
           if ($LASTEXITCODE -ne 0) { throw "Runtime smoke test failed with exit code $LASTEXITCODE" }
       - uses: actions/upload-artifact@v4
         with:
