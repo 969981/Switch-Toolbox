@@ -1,0 +1,75 @@
+name: Build and release Switch-Toolbox .NET 10 (migration)
+on:
+  push:
+    branches: [net10-slnx]
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+permissions:
+  contents: read
+concurrency:
+  group: switch-toolbox-net10-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Check SDK and solution
+        shell: pwsh
+        run: |
+          dotnet --info
+          dotnet sln Toolbox.slnx list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore SDK projects
+        shell: pwsh
+        run: |
+          dotnet restore Toolbox.slnx --disable-parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build full .NET 10 solution
+        shell: pwsh
+        run: |
+          dotnet build Toolbox.slnx -c Release --no-restore -p:Platform=AnyCPU -v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish Windows x64 application
+        shell: pwsh
+        run: |
+          dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained false -o "$env:RUNNER_TEMP/Toolbox-net10" -p:Platform=AnyCPU
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          if (!(Test-Path "$out/Toolbox.exe")) { throw 'Toolbox.exe missing' }
+          if (!(Test-Path "$out/Toolbox.Library.dll")) { throw 'Toolbox.Library.dll missing' }
+          Copy-Item Toolbox/Lib "$out/Lib" -Recurse -Force
+          if (Test-Path Toolbox/Shader) { Copy-Item Toolbox/Shader "$out/Shader" -Recurse -Force }
+          Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Switch-Toolbox-net10-win-x64
+          path: ${{ runner.temp }}/Switch-Toolbox-net10-win-x64.zip
+          if-no-files-found: error
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/net10-slnx'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Switch-Toolbox-net10-win-x64
+          path: dist
+      - name: Publish validated .NET 10 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="net10-${GITHUB_SHA:0:12}"
+          gh release view "$tag" >/dev/null 2>&1 && exit 0
+          gh release create "$tag" "dist/Switch-Toolbox-net10-win-x64.zip" \
+            --target "$GITHUB_SHA" --title "Switch-Toolbox .NET 10 (experimental)" \
+            --notes "Experimental .NET 10 Windows build; requires compatibility testing with legacy plugins and native DLLs." \
+            --prerelease
