@@ -42,8 +42,18 @@ jobs:
           $out = "$env:RUNNER_TEMP/Toolbox-net10"
           if (!(Test-Path "$out/Toolbox.exe")) { throw 'Toolbox.exe missing' }
           if (!(Test-Path "$out/Toolbox.Library.dll")) { throw 'Toolbox.Library.dll missing' }
-          Copy-Item Toolbox/Lib "$out/Lib" -Recurse -Force
-          if (Test-Path Toolbox/Shader) { Copy-Item Toolbox/Shader "$out/Shader" -Recurse -Force }
+          New-Item -ItemType Directory -Path "$out/Lib/Plugins" -Force | Out-Null
+          Copy-Item Toolbox/Lib/* "$out/Lib/" -Recurse -Force
+          if (Test-Path Toolbox/Shader) {
+            New-Item -ItemType Directory -Path "$out/Shader" -Force | Out-Null
+            Copy-Item Toolbox/Shader/* "$out/Shader/" -Recurse -Force
+          }
+          if (Test-Path "$out/FirstPlugin.Plg.dll") {
+            Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/Plugins/FirstPlugin.Plg.dll" -Force
+          }
+          if (Test-Path "$out/BrawlboxHelper.dll") {
+            Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
+          }
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
       - uses: actions/upload-artifact@v4
         with:

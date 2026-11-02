@@ -705,6 +705,8 @@
     </Content>
     <Content Include="ZstdNet.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <!-- The SDK project reference already publishes this DLL. -->
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </Content>
     <None Include="Resources\Save.png" />
     <None Include="Resources\UpdateIcon.png" />

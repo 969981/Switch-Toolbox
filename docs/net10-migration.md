@@ -30,3 +30,6 @@ Upstream: `https://github.com/KillzXGaming/Switch-Toolbox`, branch `master`. The
 
 ## Temporary warnings policy
 The migration currently suppresses only `WFO1000` (WinForms designer serialization) and `SYSLIB0011` (BinaryFormatter obsoletion) while porting the source. This is **not evidence of runtime compatibility**. .NET 10 cannot use the in-box BinaryFormatter implementation at runtime: legacy serialization call paths must be replaced with safe serializers before those features can work. Do **not** install the unsafe BinaryFormatter compatibility package for untrusted game resources. All other compiler errors remain enabled, and the release is marked experimental.
+
+## Build verification milestone
+The 2026-11-02 run `41385271604` successfully compiled all five .NET 10 projects. It failed only in `dotnet publish` because the ZstdNet.dll resource was provided both by Toolbox content and Toolbox.Library project output (NETSDK1152). The explicit content item has been marked `CopyToPublishDirectory=Never` to prevent duplicate publication. Full output and smoke testing remain outstanding.
