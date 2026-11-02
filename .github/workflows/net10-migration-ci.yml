@@ -32,12 +32,12 @@ jobs:
       - name: Build full .NET 10 solution
         shell: pwsh
         run: |
-          dotnet build Toolbox.slnx -c Release --no-restore -p:Platform=AnyCPU -v:minimal
+          dotnet build Toolbox.slnx -c Release --no-restore -v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Publish Windows x64 application
         shell: pwsh
         run: |
-          dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained false -o "$env:RUNNER_TEMP/Toolbox-net10" -p:Platform=AnyCPU
+          dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained false -o "$env:RUNNER_TEMP/Toolbox-net10"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $out = "$env:RUNNER_TEMP/Toolbox-net10"
           if (!(Test-Path "$out/Toolbox.exe")) { throw 'Toolbox.exe missing' }
