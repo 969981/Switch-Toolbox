@@ -97,3 +97,4 @@ namespace Toolbox
             return _failures == 0 ? 0 : 1;
         }
     }
+}
