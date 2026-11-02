@@ -27,3 +27,6 @@ dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained fal
 Upstream: `https://github.com/KillzXGaming/Switch-Toolbox`, branch `master`. The existing automatic sync/release workflow is preserved on the stable `master` branch. Do not replace the legacy build or make this branch a primary release source until the .NET 10 migration passes compile and runtime testing.
 
 **Repository settings:** GitHub scheduled workflows execute on the repository *default branch*. Set the default branch to `master` under Settings → Branches if it currently points elsewhere; otherwise the stable automatic schedule may not run as intended.
+
+## Temporary warnings policy
+The migration currently suppresses only `WFO1000` (WinForms designer serialization) and `SYSLIB0011` (BinaryFormatter obsoletion) while porting the source. This is **not evidence of runtime compatibility**. .NET 10 cannot use the in-box BinaryFormatter implementation at runtime: legacy serialization call paths must be replaced with safe serializers before those features can work. Do **not** install the unsafe BinaryFormatter compatibility package for untrusted game resources. All other compiler errors remain enabled, and the release is marked experimental.

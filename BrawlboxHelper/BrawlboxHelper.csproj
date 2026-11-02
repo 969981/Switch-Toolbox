@@ -4,6 +4,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <!-- Temporary migration warning suppressions; see docs/net10-migration.md. -->
+    <NoWarn>$(NoWarn);WFO1000;SYSLIB0011</NoWarn>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>false</UseWPF>
