@@ -55,6 +55,12 @@ jobs:
             Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
           }
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
+      - name: Runtime and format smoke test (Windows)
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          & "$out/Toolbox.exe" --migration-smoke
+          if ($LASTEXITCODE -ne 0) { throw "Runtime smoke test failed with exit code $LASTEXITCODE" }
       - uses: actions/upload-artifact@v4
         with:
           name: Switch-Toolbox-net10-win-x64

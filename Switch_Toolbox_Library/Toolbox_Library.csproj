@@ -80,10 +80,6 @@
     <Reference Include="Gl_EditorFramework">
       <HintPath>..\Toolbox\Gl_EditorFramework.dll</HintPath>
     </Reference>
-    <Reference Include="ICSharpCode.SharpZipLib, Version=1.1.0.145, Culture=neutral, PublicKeyToken=1b03e6acf1164f73, processorArchitecture=MSIL">
-      <HintPath>..\packages\SharpZipLib.1.1.0\lib\net45\ICSharpCode.SharpZipLib.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="K4os.Compression.LZ4, Version=1.1.0.0, Culture=neutral, PublicKeyToken=27d14aecb5186925, processorArchitecture=MSIL">
       <HintPath>..\Toolbox\Lib\K4os.Compression.LZ4.dll</HintPath>
       <Private>False</Private>
@@ -1564,4 +1560,7 @@
     <None Include="Resources\flatc.exe" />
   </ItemGroup>
   
-  </Project>
+    <ItemGroup>
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
+  </ItemGroup>
+</Project>
