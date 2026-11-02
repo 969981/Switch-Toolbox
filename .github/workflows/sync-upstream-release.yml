@@ -1,0 +1,152 @@
+name: Sync upstream and publish Switch-Toolbox
+
+on:
+  schedule:
+    # Scheduled events only use the default branch. UTC, may run late.
+    - cron: "9,19,29,39,49,59 * * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: switch-toolbox-upstream-sync-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync official upstream master
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      build_sha: ${{ steps.sync.outputs.build_sha }}
+      upstream_sha: ${{ steps.sync.outputs.upstream_sha }}
+      tag: ${{ steps.sync.outputs.tag }}
+      publish: ${{ steps.sync.outputs.publish }}
+    steps:
+      - name: Checkout repository's master branch
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge upstream safely and deduplicate releases
+        id: sync
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/KillzXGaming/Switch-Toolbox.git
+          git fetch --no-tags upstream master
+          upstream_sha="$(git rev-parse FETCH_HEAD)"
+          if ! git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            # Avoid force pushes and destructive overwrites.
+            git merge --no-edit "$upstream_sha"
+            git push origin HEAD:master
+          fi
+          build_sha="$(git rev-parse HEAD)"
+          tag="upstream-${upstream_sha:0:12}"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "build_sha=$build_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Already released upstream commit: $upstream_sha"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "New/unpublished upstream commit: $upstream_sha"
+          fi
+
+  build:
+    name: Build .NET Framework 4.8 Windows application
+    needs: sync
+    if: needs.sync.outputs.publish == 'true'
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact synchronized commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync.outputs.build_sha }}
+      - name: Setup Visual Studio MSBuild
+        uses: microsoft/setup-msbuild@v2
+      - name: Setup NuGet CLI
+        uses: NuGet/setup-nuget@v2
+        with:
+          nuget-version: '6.x'
+      - name: Restore packages.config dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          nuget restore Toolbox.sln -NonInteractive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile complete Release solution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & msbuild.exe Toolbox.sln /m /t:Build /p:Configuration=Release '/p:Platform=Any CPU' /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify full distribution and make ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:GITHUB_WORKSPACE 'Toolbox/bin/Release'
+          $exe = Join-Path $out 'Toolbox.exe'
+          $lib = Join-Path $out 'Toolbox.Library.dll'
+          if (-not (Test-Path $exe -PathType Leaf)) { throw "Toolbox.exe missing; refusing release" }
+          if (-not (Test-Path $lib -PathType Leaf)) { throw "Toolbox.Library.dll missing; refusing release" }
+          $zip = Join-Path $env:RUNNER_TEMP 'Switch-Toolbox-Windows.zip'
+          # Package the complete output directory: legacy native libraries and resources are required.
+          Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip -Force -CompressionLevel Optimal
+          if (-not (Test-Path $zip -PathType Leaf)) { throw "ZIP missing" }
+      - name: Upload verified Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Switch-Toolbox-Windows
+          path: ${{ runner.temp }}/Switch-Toolbox-Windows.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: [sync, build]
+    if: needs.sync.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified archive
+        uses: actions/download-artifact@v4
+        with:
+          name: Switch-Toolbox-Windows
+          path: dist
+      - name: Create release once per upstream commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.sync.outputs.tag }}
+          BUILD_SHA: ${{ needs.sync.outputs.build_sha }}
+          UPSTREAM_SHA: ${{ needs.sync.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          test -s dist/Switch-Toolbox-Windows.zip
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists, skipping duplicate."
+            exit 0
+          fi
+          printf 'Automated Windows build of Switch-Toolbox (.NET Framework 4.8).\n\nUpstream: https://github.com/KillzXGaming/Switch-Toolbox\nUpstream commit: %s\nBuild commit: %s\n\nUnzip the full archive before launching Toolbox.exe; DLLs and native resources are required.\n' "$UPSTREAM_SHA" "$BUILD_SHA" > release-notes.md
+          gh release create "$TAG" "dist/Switch-Toolbox-Windows.zip#Switch-Toolbox-Windows.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$BUILD_SHA" \
+            --title "Switch-Toolbox Windows ($TAG)" \
+            --notes-file release-notes.md \
+            --latest
