@@ -2201,12 +2201,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BrawlboxHelper\BrawlboxHelper.csproj">
-      <Project>{fa690685-3370-44d5-b138-f538c8d4c2a3}  <ItemGroup>
-    <PackageReference Include="DockPanelSuite" Version="3.1.1" />
-    <PackageReference Include="DockPanelSuite.ThemeVS2015" Version="3.1.1" />
-    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
-  </ItemGroup>
-</Project>
+      <Project>{fa690685-3370-44d5-b138-f538c8d4c2a3}</Project>
       <Name>BrawlboxHelper</Name>
     </ProjectReference>
     <ProjectReference Include="..\Switch_Toolbox_Library\Toolbox_Library.csproj">
@@ -2321,4 +2316,9 @@
     <None Include="Resources\Hashes\MetroidDread.txt" />
     <Content Include="Resources\Hashes\Pkmn.txt" />
   </ItemGroup>
-  </Project>
+    <ItemGroup>
+    <PackageReference Include="DockPanelSuite" Version="3.1.1" />
+    <PackageReference Include="DockPanelSuite.ThemeVS2015" Version="3.1.1" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
+  </ItemGroup>
+</Project>
