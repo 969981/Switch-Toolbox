@@ -91,18 +91,33 @@ namespace Toolbox
                 }
                 var resolver = Assembly.LoadFrom(Path.Combine(root, "Lib", "Syroot.NintenTools.NSW.Bfres.dll"));
                 var resourceType = resolver.GetType("Syroot.NintenTools.NSW.Bfres.ResFile", true);
-                var constructor = resourceType.GetConstructor(new[] { typeof(Stream) });
-                if (constructor == null) throw new MissingMethodException(resourceType.FullName, ".ctor(Stream)");
-                var parsed = constructor.Invoke(new object[] { new MemoryStream(bytes) });
-                var save = resourceType.GetMethod("Save", new[] { typeof(Stream) });
-                if (save == null) throw new MissingMethodException(resourceType.FullName, "Save(Stream)");
+                var constructor = resourceType.GetConstructors()
+                    .FirstOrDefault(method => method.GetParameters().Length > 0 &&
+                        method.GetParameters()[0].ParameterType == typeof(Stream));
+                if (constructor == null) throw new MissingMethodException(resourceType.FullName, ".ctor(Stream, ...)");
+                object Construct(Stream stream)
+                {
+                    var args = constructor.GetParameters().Select((parameter, index) =>
+                        index == 0 ? (object)stream :
+                        parameter.HasDefaultValue ? parameter.DefaultValue :
+                        parameter.ParameterType.IsValueType ? Activator.CreateInstance(parameter.ParameterType) : null).ToArray();
+                    return constructor.Invoke(args);
+                }
+                var parsed = Construct(new MemoryStream(bytes));
+                var save = resourceType.GetMethods().FirstOrDefault(method => method.Name == "Save" &&
+                    method.GetParameters().Length > 0 && method.GetParameters()[0].ParameterType == typeof(Stream));
+                if (save == null) throw new MissingMethodException(resourceType.FullName, "Save(Stream, ...)");
                 using var output = new MemoryStream();
-                save.Invoke(parsed, new object[] { output });
+                var saveArgs = save.GetParameters().Select((parameter, index) =>
+                    index == 0 ? (object)output :
+                    parameter.HasDefaultValue ? parameter.DefaultValue :
+                    parameter.ParameterType.IsValueType ? Activator.CreateInstance(parameter.ParameterType) : null).ToArray();
+                save.Invoke(parsed, saveArgs);
                 byte[] saved = output.ToArray();
                 if (saved.Length < 64) throw new InvalidDataException("BFRES output empty");
                 using var check = new MemoryStream(saved);
                 if (!(new FirstPlugin.BFRES()).Identify(check)) throw new InvalidDataException("BFRES round-trip signature invalid");
-                constructor.Invoke(new object[] { new MemoryStream(saved) });
+                Construct(new MemoryStream(saved));
             });
             Console.WriteLine("Migration smoke failures: " + _failures);
             return _failures == 0 ? 0 : 1;
