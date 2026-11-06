@@ -54,6 +54,45 @@ namespace Toolbox
                 var plugins = Toolbox.Library.PluginLoader.LoadPlugins();
                 if (plugins.Count == 0) throw new Exception("No plugin instances discovered");
             });
+            Check("Published .NET 10 x64 runtime and updater", () =>
+            {
+                if (Environment.Version.Major != 10)
+                    throw new InvalidOperationException("Expected .NET 10 runtime, found " + Environment.Version);
+                if (!Environment.Is64BitProcess)
+                    throw new InvalidOperationException("Windows x64 package started as 32-bit process");
+                foreach (var filename in new[] { "Updater.exe", "Updater.dll", "Updater.runtimeconfig.json",
+                                                  "Toolbox.exe", "Toolbox.runtimeconfig.json" })
+                    if (!File.Exists(Path.Combine(root, filename)))
+                        throw new FileNotFoundException(filename);
+            });
+            Check("File format registry initializes from discovered plugins", () =>
+            {
+                var formats = Toolbox.Library.FileManager.GetFileFormats();
+                if (formats.Length < 2)
+                    throw new InvalidDataException("File format registry is empty");
+                if (!formats.Any(f => f is FirstPlugin.BFRES) ||
+                    !formats.Any(f => f is FirstPlugin.BNTX))
+                    throw new InvalidDataException("BFRES/BNTX formats missing from registration");
+                Console.WriteLine("Registered file formats: " + formats.Length);
+            });
+            Check("WinForms MainForm designer and control creation", () =>
+            {
+                System.Windows.Forms.Application.EnableVisualStyles();
+                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+                using var form = new MainForm();
+                if (form.Handle == IntPtr.Zero)
+                    throw new InvalidOperationException("MainForm handle was not created");
+            });
+            Check("DirectXTex native/managed bridge loads under .NET 10", () =>
+            {
+                var path = Path.Combine(root, "x64", "DirectXTexNetImpl.dll");
+                if (!File.Exists(path)) throw new FileNotFoundException(path);
+                var nativeBridge = Assembly.LoadFrom(path);
+                if (nativeBridge == null)
+                    throw new InvalidOperationException("DirectXTexNetImpl could not be loaded");
+                Console.WriteLine("DirectXTex bridge: " + nativeBridge.FullName);
+            });
+
             Check("BNTX create / identify / save / reload", () =>
             {
                 byte[] created = FirstPlugin.BNTX.CreateNewBNTX("MigrationSmoke");
