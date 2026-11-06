@@ -1,0 +1,148 @@
+name: Build and release Switch-Toolbox .NET 10 (migration)
+on:
+  push:
+    branches: [net10-slnx]
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+permissions:
+  contents: read
+concurrency:
+  group: switch-toolbox-net10-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Check SDK and solution
+        shell: pwsh
+        run: |
+          dotnet --info
+          dotnet sln Toolbox.slnx list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore SDK projects
+        shell: pwsh
+        run: |
+          dotnet restore Toolbox.slnx --disable-parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build full .NET 10 solution
+        shell: pwsh
+        run: |
+          dotnet build Toolbox.slnx -c Release --no-restore -v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish Windows x64 application
+        shell: pwsh
+        run: |
+          dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained false -o "$env:RUNNER_TEMP/Toolbox-net10"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          if (!(Test-Path "$out/Toolbox.exe")) { throw 'Toolbox.exe missing' }
+          if (!(Test-Path "$out/Toolbox.Library.dll")) { throw 'Toolbox.Library.dll missing' }
+          New-Item -ItemType Directory -Path "$out/Lib/Plugins" -Force | Out-Null
+          Copy-Item Toolbox/Lib/* "$out/Lib/" -Recurse -Force
+          if (Test-Path Toolbox/Shader) {
+            New-Item -ItemType Directory -Path "$out/Shader" -Force | Out-Null
+            Copy-Item Toolbox/Shader/* "$out/Shader/" -Recurse -Force
+          }
+          if (Test-Path "$out/FirstPlugin.Plg.dll") {
+            Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/Plugins/FirstPlugin.Plg.dll" -Force
+            # Replace stale pre-.NET 10 plugin copy under Lib/ with this CI-built assembly.
+            Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/FirstPlugin.Plg.dll" -Force
+          }
+          # The root DLLs come from restored NuGet DockPanelSuite 3.1.1.
+          # Keep the legacy Lib/ resolver from selecting tracked DockPanelSuite 3.0.6 DLLs.
+          foreach ($name in @('WeifenLuo.WinFormsUI.Docking.dll', 'WeifenLuo.WinFormsUI.Docking.ThemeVS2015.dll')) {
+            $src = Join-Path $out $name
+            if (!(Test-Path $src)) { throw "Expected restored NuGet assembly missing: $name" }
+            Copy-Item $src (Join-Path "$out/Lib" $name) -Force
+          }
+          if (Test-Path "$out/BrawlboxHelper.dll") {
+            Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
+          }
+          # Pin only the 12 genuinely conflicting managed DLL groups to the assemblies
+          # produced by this net10 build. Leave x86/x64 native pairs untouched.
+          & ./Scripts/Normalize-Net10PublishedDependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/net10-resolved-dlls.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # AssimpNet 4.1 is still a legacy managed DLL; its corresponding x64
+          # native assimp.dll must be deployed explicitly for the .NET 10 SDK build.
+          # This pinned binary passed the native STL ABI test in deep CI.
+          $nativeAssimp = "packages/AssimpNet.4.1.0/runtimes/win-x64/native/assimp.dll"
+          if (!(Test-Path $nativeAssimp)) { throw "Pinned Assimp x64 native dependency missing" }
+          Copy-Item $nativeAssimp (Join-Path $out 'assimp.dll') -Force
+          Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
+      - name: Audit DockPanelSuite binding and unresolved DLL collisions
+        shell: pwsh
+        run: |
+          & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir "$env:RUNNER_TEMP/Toolbox-net10" -OutputPath "$env:RUNNER_TEMP/net10-dependencies.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = Get-Content "$env:RUNNER_TEMP/net10-dependencies.json" -Raw | ConvertFrom-Json
+          Add-Content $env:GITHUB_STEP_SUMMARY "## .NET 10 DLL dependency audit"
+          Add-Content $env:GITHUB_STEP_SUMMARY "DockPanelSuite binding: $($report.DockPanelSuite.Passed)"
+          Add-Content $env:GITHUB_STEP_SUMMARY "Conflicting DLL names: $($report.ConflictingNames); pending review: $($report.ReviewRequired)"
+          foreach ($item in $report.Collisions) {
+            if ($item.Classification -eq 'needs-review') {
+              Add-Content $env:GITHUB_STEP_SUMMARY "- $($item.Name): $(($item.Variants | ForEach-Object { $_.Path }) -join ', ')"
+            }
+          }
+      - name: Runtime and format smoke test (Windows)
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          & dotnet "$out/Toolbox.dll" --migration-smoke
+          if ($LASTEXITCODE -ne 0) { throw "Runtime smoke test failed with exit code $LASTEXITCODE" }
+      - name: Download pinned real SV and ZA fixture files
+        shell: pwsh
+        env:
+          NET10_ZA_REPO_TOKEN: ${{ secrets.NET10_ZA_REPO_TOKEN }}
+        run: |
+          & ./Scripts/Fetch-Net10RealFixtures.ps1 -Destination "$env:RUNNER_TEMP/net10-game-samples"
+      - name: Real BNTX texture rename / save / reload and Trinity boundary validation
+        shell: pwsh
+        env:
+          NET10_REAL_FIXTURES_DIR: ${{ runner.temp }}/net10-game-samples
+        run: |
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          & dotnet "$out/Toolbox.dll" --migration-real-smoke
+          if ($LASTEXITCODE -ne 0) { throw "Real game resource smoke failed with exit code $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Switch-Toolbox-net10-dependency-audit
+          path: |
+            ${{ runner.temp }}/net10-dependencies.json
+            ${{ runner.temp }}/net10-resolved-dlls.json
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Switch-Toolbox-net10-win-x64
+          path: ${{ runner.temp }}/Switch-Toolbox-net10-win-x64.zip
+          if-no-files-found: warn
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/net10-slnx'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Switch-Toolbox-net10-win-x64
+          path: dist
+      - name: Publish validated .NET 10 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="net10-${GITHUB_SHA:0:12}"
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
+          gh release create "$tag" "dist/Switch-Toolbox-net10-win-x64.zip" \
+            -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "Switch-Toolbox .NET 10 (experimental)" \
+            --notes "Experimental .NET 10 Windows build; requires compatibility testing with legacy plugins and native DLLs." \
+            --prerelease
