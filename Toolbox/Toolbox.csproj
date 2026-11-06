@@ -642,12 +642,8 @@
     <Content Include="Lib\VGAudio.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Lib\WeifenLuo.WinFormsUI.Docking.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Lib\WeifenLuo.WinFormsUI.Docking.ThemeVS2015.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <!-- DockPanelSuite 3.1.1 is delivered by PackageReference via File_Format_Library.
+         Never overlay its published assemblies with tracked legacy net40 DLLs. -->
     <Content Include="Lib\Yaz0.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
