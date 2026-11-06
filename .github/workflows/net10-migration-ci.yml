@@ -64,6 +64,20 @@ jobs:
             Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
           }
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
+      - name: Audit DockPanelSuite binding and unresolved DLL collisions
+        shell: pwsh
+        run: |
+          & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir "$env:RUNNER_TEMP/Toolbox-net10" -OutputPath "$env:RUNNER_TEMP/net10-dependencies.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = Get-Content "$env:RUNNER_TEMP/net10-dependencies.json" -Raw | ConvertFrom-Json
+          Add-Content $env:GITHUB_STEP_SUMMARY "## .NET 10 DLL dependency audit"
+          Add-Content $env:GITHUB_STEP_SUMMARY "DockPanelSuite binding: $($report.DockPanelSuite.Passed)"
+          Add-Content $env:GITHUB_STEP_SUMMARY "Conflicting DLL names: $($report.ConflictingNames); pending review: $($report.ReviewRequired)"
+          foreach ($item in $report.Collisions) {
+            if ($item.Classification -eq 'needs-review') {
+              Add-Content $env:GITHUB_STEP_SUMMARY "- $($item.Name): $(($item.Variants | ForEach-Object { $_.Path }) -join ', ')"
+            }
+          }
       - name: Runtime and format smoke test (Windows)
         shell: pwsh
         run: |
@@ -84,21 +98,18 @@ jobs:
           $out = "$env:RUNNER_TEMP/Toolbox-net10"
           & dotnet "$out/Toolbox.dll" --migration-real-smoke
           if ($LASTEXITCODE -ne 0) { throw "Real game resource smoke failed with exit code $LASTEXITCODE" }
-      - name: Inventory published DLL conflicts and versions
-        shell: pwsh
-        run: |
-          & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir "$env:RUNNER_TEMP/Toolbox-net10" -OutputPath "$env:RUNNER_TEMP/net10-dependencies.json"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Switch-Toolbox-net10-dependency-audit
           path: ${{ runner.temp }}/net10-dependencies.json
-          if-no-files-found: error
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Switch-Toolbox-net10-win-x64
           path: ${{ runner.temp }}/Switch-Toolbox-net10-win-x64.zip
-          if-no-files-found: error
+          if-no-files-found: warn
   release:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/net10-slnx'
