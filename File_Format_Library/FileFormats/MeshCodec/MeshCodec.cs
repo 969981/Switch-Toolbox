@@ -294,12 +294,12 @@ namespace FirstPlugin
             TextureFolder.SaveEdited();
         }
 
-        public void PrepareTexToGo(ResFile resFile)
+        public void PrepareTexToGo(ResFile resFile, bool usesExternalStrings)
         {
             var materials = resFile.Models.SelectMany(x => x.Materials);
 
             //Use the romfs the external strings came from, so the textures match the game of the model
-            string romfsPath = resFile.UsesExternalStrings && !string.IsNullOrEmpty(ExternalStringRomfsPath) ?
+            string romfsPath = usesExternalStrings && !string.IsNullOrEmpty(ExternalStringRomfsPath) ?
                 ExternalStringRomfsPath : Runtime.TotkGamePath;
             if (string.IsNullOrEmpty(romfsPath) || !Directory.Exists(Path.Combine(romfsPath, "TexToGo")))
                 return;
