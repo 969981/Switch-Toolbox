@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Runtime.Loader;
 
 namespace Toolbox
 {
@@ -138,6 +139,13 @@ namespace Toolbox
             }
 
             Toolbox.Library.Runtime.ExecutableDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            // The regular application uses the historical Lib/ folder assembly resolver.
+            // The standalone validation command must use the same dependency search path.
+            AssemblyLoadContext.Default.Resolving += (context, assemblyName) =>
+            {
+                string filename = Path.Combine(AppContext.BaseDirectory, "Lib", assemblyName.Name + ".dll");
+                return File.Exists(filename) ? context.LoadFromAssemblyPath(Path.GetFullPath(filename)) : null;
+            };
             foreach (var game in new[] { "SV", "ZA" })
             {
                 string folder = Path.Combine(root, game);
