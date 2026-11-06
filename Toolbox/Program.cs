@@ -27,6 +27,11 @@ namespace Toolbox
                 Environment.ExitCode = MigrationSmokeTests.Run();
                 return;
             }
+            if (Array.Exists(Environment.GetCommandLineArgs(), value => string.Equals(value, "--migration-real-smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.ExitCode = RealResourceSmokeTests.Run();
+                return;
+            }
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
