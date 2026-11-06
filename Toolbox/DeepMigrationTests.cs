@@ -153,9 +153,37 @@ namespace Toolbox
                                                string.Join(",", rgba));
             Console.WriteLine("[DEEP GL] OpenGL=" + version + " renderer=" + renderer +
                               " clearReadback=" + string.Join(",", rgba));
+            // Rasterize a real triangle into the framebuffer in the legacy GL1
+            // path, then read pixels. This tests primitive drawing, not game-model IO.
+            GL.MatrixMode(MatrixMode.Projection);
+            GL.LoadIdentity();
+            GL.MatrixMode(MatrixMode.Modelview);
+            GL.LoadIdentity();
+            GL.Disable(EnableCap.Texture2D);
+            GL.Begin(PrimitiveType.Triangles);
+            GL.Color3(1f, 0f, 0f);
+            GL.Vertex2(-0.75f, -0.75f);
+            GL.Vertex2(0.75f, -0.75f);
+            GL.Vertex2(0f, 0.75f);
+            GL.End();
+            GL.Finish();
+            var trianglePixel = new byte[4];
+            GL.ReadPixels(32, 32, 1, 1, PixelFormat.Rgba, PixelType.UnsignedByte, trianglePixel);
+            if (trianglePixel[0] < 180 || trianglePixel[1] > 70 || trianglePixel[2] > 70)
+                throw new InvalidDataException("OpenGL triangle framebuffer readback mismatch: " +
+                                               string.Join(",", trianglePixel));
+            Console.WriteLine("[DEEP GL] triangle rasterization pixel=" +
+                              string.Join(",", trianglePixel));
             if (!requireShaders)
                 return;
 
+            // The hosted Windows runner exposes the GDI Generic OpenGL 1.1
+            // implementation. GL.CreateShader has a NULL native entrypoint there
+            // and crashes with 0xC0000005, so reject it BEFORE calling the API.
+            if (!Version.TryParse(version.Split(' ')[0], out var apiVersion) ||
+                apiVersion.Major < 2)
+                throw new NotSupportedException("GLSL unavailable on runner: OpenGL " +
+                                                version + " (" + renderer + ")");
             int shader = GL.CreateShader(ShaderType.VertexShader);
             if (shader == 0)
                 throw new NotSupportedException("GLSL shader creation unsupported by context: " + version);
