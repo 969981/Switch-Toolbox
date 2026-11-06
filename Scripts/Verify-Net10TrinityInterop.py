@@ -244,10 +244,67 @@ def verify_animated_skinning(doc, file):
         raise AssertionError("Bone animation transforms do not change over sampled frames")
     if not all(math.isfinite(v) for frame in matrices for matrix in frame.values() for v in matrix):
         raise AssertionError("Non-finite bone transform")
+    # Confirm the exported JOINTS_0 / WEIGHTS_0 are physically usable:
+    # CPU-skin actual mesh vertices at multiple animation timestamps.
+    # This does not claim that OpenGL rendered the skinned result.
+    weighted_vertices = 0
+    deformed_vertices = 0
+    for node in nodes:
+        if "mesh" not in node or "skin" not in node:
+            continue
+        skin = skins[node["skin"]]
+        joint_mapping = skin["joints"]
+        inv_bind = (values_from_accessor(doc, file.parent, skin["inverseBindMatrices"])
+                    if "inverseBindMatrices" in skin else
+                    [tuple([1 if i%5 == 0 else 0 for i in range(16)])
+                     for _ in joint_mapping])
+        if len(inv_bind) != len(joint_mapping):
+            raise AssertionError("Inverse-bind matrix count does not match joints")
+        for primitive in doc["meshes"][node["mesh"]].get("primitives",[]):
+            attrs = primitive.get("attributes",{})
+            if not all(k in attrs for k in ("POSITION","JOINTS_0","WEIGHTS_0")):
+                continue
+            count = min(doc["accessors"][attrs["POSITION"]]["count"], 128)
+            positions = values_from_accessor(doc,file.parent,attrs["POSITION"],count)
+            joints = values_from_accessor(doc,file.parent,attrs["JOINTS_0"],count)
+            weights = values_from_accessor(doc,file.parent,attrs["WEIGHTS_0"],count)
+            if not (len(positions) == len(joints) == len(weights)):
+                raise AssertionError("Geometry, joints and weights have inconsistent vertex counts")
+            for position,ids,vals in zip(positions,joints,weights):
+                if len(ids) != len(vals):
+                    raise AssertionError("Joint/weight vector size mismatch")
+                valid = [(int(j),float(w)) for j,w in zip(ids,vals) if w > 1e-6]
+                if not valid:
+                    continue
+                total_weight = sum(w for _,w in valid)
+                if not (0.95 <= total_weight <= 1.05):
+                    raise AssertionError("Invalid normalized skin weight sum")
+                if any(j < 0 or j >= len(joint_mapping) for j,_ in valid):
+                    raise AssertionError("Skin vertex references a nonexistent joint")
+                weighted_vertices += 1
+                posed=[]
+                for frame in matrices:
+                    xyz=[0.,0.,0.]
+                    for j,w in valid:
+                        bone=matmul(frame[joint_mapping[j]],inv_bind[j])
+                        x,y,z=position[:3]
+                        xyz[0]+=w*(bone[0]*x+bone[4]*y+bone[8]*z+bone[12])
+                        xyz[1]+=w*(bone[1]*x+bone[5]*y+bone[9]*z+bone[13])
+                        xyz[2]+=w*(bone[2]*x+bone[6]*y+bone[10]*z+bone[14])
+                    posed.append(xyz)
+                if max(abs(a-b) for a,b in zip(posed[0],posed[1])) > 1e-6:
+                    deformed_vertices += 1
+    if weighted_vertices == 0:
+        raise AssertionError("No real skinned mesh vertices sampled")
+    if deformed_vertices == 0:
+        raise AssertionError("Animated joints did not deform sampled weighted vertices")
+    print("DEEP_GLTF_CPU_SKINNING PASSED weighted=%s deformed=%s" %
+          (weighted_vertices,deformed_vertices))
     print("DEEP_GLTF_SKELETON PASSED joints=%s channels=%s moving=%s sampleTimes=%s" %
           (len(joint_ids),len(relevant),moved,samples))
     return {"sample_times":samples,"animated_bone_count":moved,
-            "sampled_skin_joints":len(joint_ids),"animation_channels":len(relevant)}
+            "sampled_skin_joints":len(joint_ids),"animation_channels":len(relevant),
+            "cpu_skinned_vertices":weighted_vertices,"deformed_vertices":deformed_vertices}
 
 
 def main():
