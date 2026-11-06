@@ -32,6 +32,11 @@ namespace Toolbox
                 Environment.ExitCode = RealResourceSmokeTests.Run();
                 return;
             }
+            if (Array.Exists(Environment.GetCommandLineArgs(), value => string.Equals(value, "--migration-deep-smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.ExitCode = DeepMigrationTests.Run();
+                return;
+            }
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
