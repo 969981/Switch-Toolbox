@@ -36,6 +36,12 @@ jobs:
             Copy-Item (Join-Path $out $name) (Join-Path "$out/Lib" $name) -Force
           }
           if (Test-Path "$out/BrawlboxHelper.dll") { Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force }
+          # Historical AssimpNet 4.1 does not automatically deploy its x64 native DLL
+          # when compiled from a direct SDK-style Assembly Reference. Test the pinned
+          # native package DLL in isolation, without upgrading AssimpNet.
+          $assimpNative = "packages/AssimpNet.4.1.0/runtimes/win-x64/native/assimp.dll"
+          if (!(Test-Path $assimpNative)) { throw "Pinned native Assimp DLL missing" }
+          Copy-Item $assimpNative (Join-Path $out 'assimp.dll') -Force
           & ./Scripts/Normalize-Net10PublishedDependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/deep-normalized.json"
           & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/deep-dependencies.json"
       - name: Download actual pinned SV/ZA fixtures
