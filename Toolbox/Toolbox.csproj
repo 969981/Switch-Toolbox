@@ -163,6 +163,7 @@
     </Compile>
     <Compile Include="MigrationSmokeTests.cs" />
     <Compile Include="RealResourceSmokeTests.cs" />
+    <Compile Include="DeepMigrationTests.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UpdateProgram.cs" />
