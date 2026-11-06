@@ -14,6 +14,10 @@ $sources = @(
 )
 
 foreach ($src in $sources) {
+    if ($src.Game -eq 'ZA' -and [string]::IsNullOrWhiteSpace($env:NET10_ZA_REPO_TOKEN)) {
+        Write-Warning '[SKIP] Private ZA_Resources fixtures require NET10_ZA_REPO_TOKEN with read-only contents access.'
+        continue
+    }
     $target = Join-Path $Destination $src.Game
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     foreach ($pokemon in @('pm0001', 'pm0025')) {
@@ -33,7 +37,11 @@ foreach ($src in $sources) {
             $downloaded = $false
             for ($attempt = 1; $attempt -le 3; $attempt++) {
                 try {
-                    Invoke-WebRequest -Uri $url -OutFile $output -MaximumRedirection 5 -TimeoutSec 90
+                    $headers = @{}
+                    if ($src.Game -eq 'ZA') {
+                        $headers['Authorization'] = 'Bearer ' + $env:NET10_ZA_REPO_TOKEN
+                    }
+                    Invoke-WebRequest -Uri $url -OutFile $output -Headers $headers -MaximumRedirection 5 -TimeoutSec 90
                     $downloaded = $true
                     break
                 } catch {
