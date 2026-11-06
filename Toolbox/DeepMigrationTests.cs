@@ -122,9 +122,21 @@ namespace Toolbox
             using var host = new Form { Text = "net10-private-gl-test", Width = 128, Height = 128 };
             using var control = new OpenTK.GLControl { Dock = DockStyle.Fill };
             host.Controls.Add(control);
-            host.CreateControl();
-            control.CreateControl();
-            control.MakeCurrent();
+            // GLControl creates its WGL context when actually made visible.
+            // Handle creation alone can leave OpenTK 3's Context null.
+            host.Show();
+            Application.DoEvents();
+            if (!control.IsHandleCreated)
+                throw new NotSupportedException("Windows runner has no interactive GLControl handle");
+            try
+            {
+                control.MakeCurrent();
+            }
+            catch (NullReferenceException ex)
+            {
+                throw new NotSupportedException(
+                    "OpenTK 3 GLControl has no WGL context in this runner session", ex);
+            }
             string version = GL.GetString(StringName.Version);
             string renderer = GL.GetString(StringName.Renderer);
             if (string.IsNullOrEmpty(version))
@@ -191,14 +203,12 @@ namespace Toolbox
             // This test invokes the real Syroot parser directly, as a distinct
             // dependency gate from Switch-Toolbox's plugin wrapper.
             using var stream = File.OpenRead(path);
-            var type = typeof(Syroot.NintenTools.NSW.Bntx.BntxFile);
-            object resource = Activator.CreateInstance(type, new object[] { stream })
-                ?? throw new InvalidDataException("Syroot BNTX parser returned null");
-            var textures = type.GetProperty("Textures")?.GetValue(resource)
-                ?? throw new MissingMemberException(type.FullName, "Textures");
-            if (textures is not System.Collections.ICollection list || list.Count < 1)
+            // Syroot's constructor has optional parameters; Activator.CreateInstance
+            // with a single positional argument does not bind that overload.
+            var resource = new Syroot.NintenTools.NSW.Bntx.BntxFile(stream);
+            if (resource.Textures == null || resource.Textures.Count == 0)
                 throw new InvalidDataException("Syroot parser did not read real textures");
-            Console.WriteLine("[DEEP ABI] Syroot BNTX textureCount=" + list.Count);
+            Console.WriteLine("[DEEP ABI] Syroot BNTX textureCount=" + resource.Textures.Count);
         }
 
         internal static int Run()
