@@ -151,13 +151,9 @@ namespace Toolbox
                 string folder = Path.Combine(root, game);
                 if (!Directory.Exists(folder))
                 {
-                    if (game == "ZA")
-                    {
-                        Console.WriteLine("[SKIP] ZA_Resources is private; no authorized CI fixture was provided.");
-                        continue;
-                    }
                     failures++;
-                    Console.Error.WriteLine("[FAIL] Mandatory public SV fixtures were not downloaded.");
+                    Console.Error.WriteLine("[FAIL] Mandatory " + game +
+                        " real game fixtures were not downloaded; cannot mark migration validation successful.");
                     continue;
                 }
                 foreach (var pokemon in new[] { "pm0001", "pm0025" })
