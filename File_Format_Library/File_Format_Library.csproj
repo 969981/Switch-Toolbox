@@ -120,10 +120,6 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\Toolbox\Lib\OpenTK.GLControl.dll</HintPath>
     </Reference>
-    <Reference Include="PresentationCore">
-      <Private>False</Private>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
-    </Reference>
     <Reference Include="SARCExt">
       <HintPath>..\Toolbox\Lib\SARCExt.dll</HintPath>
       <Private>False</Private>
