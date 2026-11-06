@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Runtime smoke test failed with exit code $LASTEXITCODE" }
       - name: Download pinned real SV and ZA fixture files
         shell: pwsh
+        env:
+          NET10_ZA_REPO_TOKEN: ${{ secrets.NET10_ZA_REPO_TOKEN }}
         run: |
           & ./Scripts/Fetch-Net10RealFixtures.ps1 -Destination "$env:RUNNER_TEMP/net10-game-samples"
       - name: Real BNTX texture rename / save / reload and Trinity boundary validation
