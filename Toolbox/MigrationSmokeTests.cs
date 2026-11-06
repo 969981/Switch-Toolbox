@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Toolbox
@@ -74,6 +75,45 @@ namespace Toolbox
                     !formats.Any(f => f is FirstPlugin.BNTX))
                     throw new InvalidDataException("BFRES/BNTX formats missing from registration");
                 Console.WriteLine("Registered file formats: " + formats.Length);
+            });
+            Check("DockPanelSuite 3.1.1 published bindings and actual loader identity", () =>
+            {
+                foreach (string filename in new[]
+                {
+                    "WeifenLuo.WinFormsUI.Docking.dll",
+                    "WeifenLuo.WinFormsUI.Docking.ThemeVS2015.dll"
+                })
+                {
+                    string primary = Path.Combine(root, filename);
+                    string fallback = Path.Combine(root, "Lib", filename);
+                    if (!File.Exists(primary) || !File.Exists(fallback))
+                        throw new FileNotFoundException("Expected root and Lib copies: " + filename);
+                    byte[] canonicalHash = SHA256.HashData(File.ReadAllBytes(primary));
+                    if (!canonicalHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(fallback))))
+                        throw new InvalidDataException("DockPanelSuite binary mismatch: " + filename);
+
+                    AssemblyName identity = AssemblyName.GetAssemblyName(primary);
+                    Assembly resolved = AssemblyLoadContext.Default.LoadFromAssemblyName(identity);
+                    if (!string.Equals(identity.FullName, resolved.GetName().FullName,
+                            StringComparison.Ordinal))
+                        throw new InvalidDataException("DockPanelSuite assembly identity mismatch: " + filename);
+                    if (resolved.GetExportedTypes().Length == 0)
+                        throw new TypeLoadException("No public DockPanelSuite types: " + filename);
+                    var candidates = AppDomain.CurrentDomain.GetAssemblies()
+                        .Where(assembly => string.Equals(assembly.GetName().Name,
+                            identity.Name, StringComparison.Ordinal));
+                    foreach (var candidate in candidates)
+                    {
+                        if (string.IsNullOrWhiteSpace(candidate.Location) ||
+                            !File.Exists(candidate.Location) ||
+                            !canonicalHash.SequenceEqual(SHA256.HashData(
+                                File.ReadAllBytes(candidate.Location))))
+                            throw new InvalidDataException("Unexpected loaded DockPanelSuite binary: " +
+                                candidate.FullName + " from " + candidate.Location);
+                    }
+                    Console.WriteLine("DockPanelSuite runtime: " + identity.FullName +
+                                      " from " + resolved.Location);
+                }
             });
             Check("WinForms MainForm designer and control creation", () =>
             {
