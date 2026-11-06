@@ -63,6 +63,10 @@ jobs:
           if (Test-Path "$out/BrawlboxHelper.dll") {
             Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
           }
+          # Pin only the 12 genuinely conflicting managed DLL groups to the assemblies
+          # produced by this net10 build. Leave x86/x64 native pairs untouched.
+          & ./Scripts/Normalize-Net10PublishedDependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/net10-resolved-dlls.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
       - name: Audit DockPanelSuite binding and unresolved DLL collisions
         shell: pwsh
@@ -102,7 +106,9 @@ jobs:
         if: always()
         with:
           name: Switch-Toolbox-net10-dependency-audit
-          path: ${{ runner.temp }}/net10-dependencies.json
+          path: |
+            ${{ runner.temp }}/net10-dependencies.json
+            ${{ runner.temp }}/net10-resolved-dlls.json
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
