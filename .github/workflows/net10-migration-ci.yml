@@ -67,6 +67,12 @@ jobs:
           # produced by this net10 build. Leave x86/x64 native pairs untouched.
           & ./Scripts/Normalize-Net10PublishedDependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/net10-resolved-dlls.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # AssimpNet 4.1 is still a legacy managed DLL; its corresponding x64
+          # native assimp.dll must be deployed explicitly for the .NET 10 SDK build.
+          # This pinned binary passed the native STL ABI test in deep CI.
+          $nativeAssimp = "packages/AssimpNet.4.1.0/runtimes/win-x64/native/assimp.dll"
+          if (!(Test-Path $nativeAssimp)) { throw "Pinned Assimp x64 native dependency missing" }
+          Copy-Item $nativeAssimp (Join-Path $out 'assimp.dll') -Force
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
       - name: Audit DockPanelSuite binding and unresolved DLL collisions
         shell: pwsh
