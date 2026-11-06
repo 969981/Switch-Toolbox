@@ -61,6 +61,28 @@ jobs:
           $out = "$env:RUNNER_TEMP/Toolbox-net10"
           & dotnet "$out/Toolbox.dll" --migration-smoke
           if ($LASTEXITCODE -ne 0) { throw "Runtime smoke test failed with exit code $LASTEXITCODE" }
+      - name: Download pinned real SV and ZA fixture files
+        shell: pwsh
+        run: |
+          & ./Scripts/Fetch-Net10RealFixtures.ps1 -Destination "$env:RUNNER_TEMP/net10-game-samples"
+      - name: Real BNTX texture rename / save / reload and Trinity boundary validation
+        shell: pwsh
+        env:
+          NET10_REAL_FIXTURES_DIR: ${{ runner.temp }}/net10-game-samples
+        run: |
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          & dotnet "$out/Toolbox.dll" --migration-real-smoke
+          if ($LASTEXITCODE -ne 0) { throw "Real game resource smoke failed with exit code $LASTEXITCODE" }
+      - name: Inventory published DLL conflicts and versions
+        shell: pwsh
+        run: |
+          & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir "$env:RUNNER_TEMP/Toolbox-net10" -OutputPath "$env:RUNNER_TEMP/net10-dependencies.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Switch-Toolbox-net10-dependency-audit
+          path: ${{ runner.temp }}/net10-dependencies.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: Switch-Toolbox-net10-win-x64
