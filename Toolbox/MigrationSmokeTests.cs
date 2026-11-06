@@ -93,6 +93,26 @@ namespace Toolbox
                 Console.WriteLine("DirectXTex bridge: " + nativeBridge.FullName);
             });
 
+            Check("Real bundled Yaz0/SZS asset decompression", () =>
+            {
+                // Game-derived fixture already present in the repository; never ship it in the release.
+                var workspace = Environment.GetEnvironmentVariable("GITHUB_WORKSPACE");
+                if (string.IsNullOrEmpty(workspace))
+                {
+                    Console.WriteLine("[SKIP] Repository fixture not available outside CI workspace");
+                    return;
+                }
+                var file = Path.Combine(workspace, "File_Format_Library", "BodyB_Ysi.szs");
+                var compressed = File.ReadAllBytes(file);
+                if (compressed.Length < 16 || Encoding.ASCII.GetString(compressed, 0, 4) != "Yaz0")
+                    throw new InvalidDataException("Fixture must be a Yaz0 SZS file");
+                uint expectedLength = ((uint)compressed[4] << 24) | ((uint)compressed[5] << 16) |
+                                      ((uint)compressed[6] << 8) | compressed[7];
+                using var decoded = new Toolbox.Library.Yaz0().Decompress(new MemoryStream(compressed));
+                if (expectedLength == 0 || decoded.Length != expectedLength)
+                    throw new InvalidDataException("Yaz0 decompressed size does not match header");
+                Console.WriteLine("Yaz0 real fixture: " + compressed.Length + " -> " + decoded.Length);
+            });
             Check("BNTX create / identify / save / reload", () =>
             {
                 byte[] created = FirstPlugin.BNTX.CreateNewBNTX("MigrationSmoke");
