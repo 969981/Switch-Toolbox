@@ -5,6 +5,9 @@ This validates gftool output in temporary CI files, NOT native TRMDL editing in 
 No game assets are committed, uploaded, or published.
 """
 import argparse
+import base64
+import math
+import struct
 import copy
 import hashlib
 import json
@@ -30,6 +33,223 @@ def validate_asset_refs(gltf: dict, basedir: Path):
     return checked
 
 
+
+# Follow glTF 2.0 accessor layout, including tightly packed and strided views.
+# These tests operate on *exported* glTF, not direct Trinity binary rewriting.
+COMPONENTS = {5120: "b", 5121: "B", 5122: "h", 5123: "H", 5125: "I", 5126: "f"}
+TYPE_LENGTHS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+
+def buffer_bytes(doc, parent, buffer_index):
+    b = doc["buffers"][buffer_index]
+    uri = b.get("uri", "")
+    if uri.startswith("data:"):
+        return base64.b64decode(uri.split(",", 1)[1])
+    if not uri or urlsplit(uri).scheme:
+        raise ValueError("Unsupported glTF binary buffer URI: " + uri)
+    path = (parent / unquote(uri)).resolve()
+    if not path.is_relative_to(parent.resolve()):
+        raise ValueError("Buffer escapes export directory")
+    return path.read_bytes()
+
+def accessor_layout(doc, accessor_index):
+    acc = doc["accessors"][accessor_index]
+    if "sparse" in acc:
+        raise NotImplementedError("Sparse accessors need a separate validation path")
+    view = doc["bufferViews"][acc["bufferView"]]
+    fmt = COMPONENTS[acc["componentType"]]
+    n = TYPE_LENGTHS[acc["type"]]
+    width = struct.calcsize("<" + fmt * n)
+    stride = view.get("byteStride", width)
+    if stride < width:
+        raise ValueError("Invalid glTF accessor stride")
+    start = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
+    return acc, view, fmt, n, width, stride, start
+
+def values_from_accessor(doc, parent, index, limit=None):
+    acc, view, fmt, n, width, stride, start = accessor_layout(doc, index)
+    raw = buffer_bytes(doc, parent, view["buffer"])
+    count = min(acc["count"], limit) if limit else acc["count"]
+    values = []
+    for i in range(count):
+        off = start + i * stride
+        if off + width > len(raw):
+            raise ValueError("Truncated glTF binary accessor")
+        vals = struct.unpack_from("<" + fmt * n, raw, off)
+        if acc.get("normalized") and acc["componentType"] != 5126:
+            typ = acc["componentType"]
+            maxval = {5120:127,5121:255,5122:32767,5123:65535}.get(typ)
+            if maxval:
+                vals = tuple(max(-1.0, val / maxval) if typ in (5120,5122)
+                             else val / maxval for val in vals)
+        values.append(vals)
+    return values
+
+def verify_vertex_buffer_edit(doc, file):
+    """Modify an actual exported vertex position in a copied .bin, reload via glTF accessors."""
+    target = None
+    for mesh in doc.get("meshes", []):
+        for primitive in mesh.get("primitives", []):
+            idx = primitive.get("attributes", {}).get("POSITION")
+            if idx is None:
+                continue
+            acc, view, fmt, n, width, stride, start = accessor_layout(doc, idx)
+            if fmt == "f" and n == 3 and acc["count"] >= 1:
+                target = (idx, view, start)
+                break
+        if target:
+            break
+    if target is None:
+        raise AssertionError("No editable float VEC3 POSITION accessor in real mesh")
+    idx, view, off = target
+    old_pos = values_from_accessor(doc, file.parent, idx, limit=1)[0]
+    buffer_index = view["buffer"]
+    raw = bytearray(buffer_bytes(doc, file.parent, buffer_index))
+    old_x = struct.unpack_from("<f", raw, off)[0]
+    new_x = old_x + 0.125
+    if not math.isfinite(new_x):
+        raise AssertionError("Non-finite real mesh position")
+    struct.pack_into("<f", raw, off, new_x)
+    modified = file.with_name(file.stem + ".vertex-validated.bin")
+    modified.write_bytes(raw)
+    edited = copy.deepcopy(doc)
+    edited["buffers"][buffer_index]["uri"] = modified.name
+    output = file.with_name(file.stem + ".vertex-validated.gltf")
+    output.write_text(json.dumps(edited, ensure_ascii=False), encoding="utf-8")
+    reread = json.loads(output.read_text(encoding="utf-8"))
+    updated_pos = values_from_accessor(reread, output.parent, idx, limit=1)[0]
+    assert abs(updated_pos[0] - new_x) <= 1e-6, "Vertex edit missing after save/reload"
+    assert updated_pos[1:] == old_pos[1:], "Unedited vertex components changed"
+    assert reread["meshes"] == doc["meshes"], "Mesh descriptors changed"
+    assert buffer_bytes(doc, file.parent, buffer_index)[off+4:] == raw[off+4:], "Unexpected later buffer bytes changed"
+    assert buffer_bytes(doc, file.parent, buffer_index)[:off] == raw[:off], "Unexpected earlier buffer bytes changed"
+    validate_asset_refs(reread, output.parent)
+    print("DEEP_GLTF_VERTEX_EDIT PASSED originalX=%s newX=%s buffer=%s" %
+          (old_x, updated_pos[0], modified.name))
+    return {"vertex_edit_readback": True, "position_accessor": idx,
+            "original_x": old_x, "edited_x": updated_pos[0]}
+
+def matmul(a, b):
+    return [sum(a[k * 4 + row] * b[col * 4 + k] for k in range(4))
+            for col in range(4) for row in range(4)]
+
+def node_matrix(node, pose):
+    if "matrix" in node and not pose:
+        return list(node["matrix"])
+    t = pose.get("translation", node.get("translation", [0,0,0]))
+    q = pose.get("rotation", node.get("rotation", [0,0,0,1]))
+    s = pose.get("scale", node.get("scale", [1,1,1]))
+    x,y,z,w = q
+    return [
+        (1-2*y*y-2*z*z)*s[0], (2*x*y+2*z*w)*s[0], (2*x*z-2*y*w)*s[0], 0,
+        (2*x*y-2*z*w)*s[1], (1-2*x*x-2*z*z)*s[1], (2*y*z+2*x*w)*s[1], 0,
+        (2*x*z+2*y*w)*s[2], (2*y*z-2*x*w)*s[2], (1-2*x*x-2*y*y)*s[2], 0,
+        t[0], t[1], t[2], 1
+    ]
+
+def normalized_quat(q):
+    length = math.sqrt(sum(v*v for v in q))
+    return [v/length for v in q] if length > 0 else [0,0,0,1]
+
+def lerp(a,b,u,path):
+    if path == "rotation":
+        # Normalize and use shortest-path interpolation for small animation steps.
+        bb = list(b)
+        if sum(x*y for x,y in zip(a,b)) < 0:
+            bb = [-v for v in bb]
+        return normalized_quat([x+(y-x)*u for x,y in zip(a,bb)])
+    return [x+(y-x)*u for x,y in zip(a,b)]
+
+def sampled_channel(doc, parent, anim, channel, t):
+    samp = anim["samplers"][channel["sampler"]]
+    times = [v[0] for v in values_from_accessor(doc, parent, samp["input"])]
+    data = values_from_accessor(doc, parent, samp["output"])
+    interp = samp.get("interpolation", "LINEAR")
+    if not times:
+        raise AssertionError("Empty animation time accessor")
+    if interp == "CUBICSPLINE":
+        assert len(data) == 3*len(times), "Invalid cubic animation data"
+        values = [data[3*i+1] for i in range(len(times))]
+    else:
+        assert len(data) == len(times), "Mismatched animation frame count"
+        values = data
+    i = 0
+    while i+1 < len(times) and t > times[i+1]:
+        i += 1
+    if i+1 == len(times) or t <= times[0]:
+        return list(values[i if t > times[0] else 0])
+    duration = times[i+1]-times[i]
+    frac = (t-times[i])/duration if duration else 0
+    if interp == "STEP":
+        return list(values[i])
+    if interp == "CUBICSPLINE":
+        m0 = data[3*i+2]
+        m1 = data[3*(i+1)]
+        h00 = 2*frac**3-3*frac**2+1
+        h10 = frac**3-2*frac**2+frac
+        h01 = -2*frac**3+3*frac**2
+        h11 = frac**3-frac**2
+        out = [h00*a+h10*duration*b+h01*c+h11*duration*d
+               for a,b,c,d in zip(values[i],m0,values[i+1],m1)]
+        return normalized_quat(out) if channel["target"]["path"] == "rotation" else out
+    return lerp(values[i], values[i+1], frac, channel["target"]["path"])
+
+def verify_animated_skinning(doc, file):
+    """Sample real exported bone keyframes and calculate animated joint world matrices."""
+    skins, nodes, animations = doc.get("skins",[]), doc.get("nodes",[]), doc.get("animations",[])
+    if not animations or not skins:
+        raise AssertionError("Real model has no skeleton/animation")
+    parents = {}
+    for i,node in enumerate(nodes):
+        for child in node.get("children",[]):
+            parents[child] = i
+    joint_ids = set(j for skin in skins for j in skin.get("joints", []))
+    anim = animations[0]
+    relevant = [c for c in anim["channels"]
+                if c.get("target",{}).get("node") in joint_ids
+                and c.get("target",{}).get("path") in ("rotation","translation","scale")]
+    if not relevant:
+        raise AssertionError("Animation does not target any skin joint")
+    all_times = []
+    for c in relevant:
+        s = anim["samplers"][c["sampler"]]
+        times = [v[0] for v in values_from_accessor(doc,file.parent,s["input"])]
+        all_times.extend(times)
+    all_times = sorted(set(all_times))
+    if len(all_times) < 2 or all_times[0] == all_times[-1]:
+        raise AssertionError("No animation duration to evaluate")
+    samples = (all_times[0], 0.5*(all_times[0]+all_times[-1]), all_times[-1])
+    matrices = []
+    for moment in samples:
+        patches = {}
+        for c in relevant:
+            target = c["target"]
+            patches.setdefault(target["node"],{})[target["path"]] = sampled_channel(
+                doc,file.parent,anim,c,moment)
+        cache={}
+        def world(index):
+            if index in cache:
+                return cache[index]
+            local = node_matrix(nodes[index], patches.get(index,{}))
+            cache[index] = matmul(world(parents[index]),local) if index in parents else local
+            return cache[index]
+        matrices.append({joint:world(joint) for joint in joint_ids})
+    deltas = [max(abs(x-y) for x,y in zip(matrices[0][j],matrices[1][j]))
+              for j in joint_ids]
+    moved = sum(d>1e-7 for d in deltas)
+    if not moved:
+        deltas = [max(abs(x-y) for x,y in zip(matrices[0][j],matrices[2][j]))
+                  for j in joint_ids]
+        moved = sum(d>1e-7 for d in deltas)
+    if not moved:
+        raise AssertionError("Bone animation transforms do not change over sampled frames")
+    if not all(math.isfinite(v) for frame in matrices for matrix in frame.values() for v in matrix):
+        raise AssertionError("Non-finite bone transform")
+    print("DEEP_GLTF_SKELETON PASSED joints=%s channels=%s moving=%s sampleTimes=%s" %
+          (len(joint_ids),len(relevant),moved,samples))
+    return {"sample_times":samples,"animated_bone_count":moved,
+            "sampled_skin_joints":len(joint_ids),"animation_channels":len(relevant)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gltf", type=Path, required=True)
@@ -50,6 +270,8 @@ def main():
     if args.min_lods:
         assert len(meshes) >= args.min_lods, "Too few LOD meshes"
     before = validate_asset_refs(source, file.parent)
+    geometry_result = verify_vertex_buffer_edit(source, file)
+    animation_result = verify_animated_skinning(source, file) if args.require_animation else {}
 
     edited = copy.deepcopy(source)
     material = edited["materials"][0]
@@ -71,6 +293,7 @@ def main():
         "materials": len(materials), "animations": len(animations),
         "assets_checked": len(before),
         "material_edit_reloaded": True, "geometry_unchanged": True,
+        **geometry_result, **animation_result,
         "native_Trinity_import_roundtrip": False,
         "Switch_Toolbox_native_Trinity_edit": False
     }, ensure_ascii=False))
