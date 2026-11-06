@@ -862,7 +862,7 @@ namespace FirstPlugin
             //Mesh codec type of bfres, load textures externallly
             if (externalFlags != (MeshCodec.ExternalFlags)0)
             {
-                MeshCodec.PrepareTexToGo(resFile);
+                MeshCodec.PrepareTexToGo(resFile, externalFlags.HasFlag(MeshCodec.ExternalFlags.HasExternalString));
                 //Games without TexToGo (e.g. Ocarina of Time) use the Tex folder loaded above instead
                 if (MeshCodec.TextureList.Count > 0 || externalFlags != MeshCodec.ExternalFlags.HasExternalString)
                 {
@@ -886,17 +886,38 @@ namespace FirstPlugin
 
         private void WarnUnresolvedExternalStrings()
         {
-            if (resFile == null || resFile.UnresolvedExternalStringIDs.Count == 0)
+            if (resFile == null)
                 return;
 
-            var ids = resFile.UnresolvedExternalStringIDs;
-            string list = string.Join(", ", ids.Take(5).Select(x => x.ToString("X16")));
-            if (ids.Count > 5)
-                list += ", ...";
+            // The distributed Syroot BFRES DLL does not expose UnresolvedExternalStringIDs.
+            // Preserve compatibility with a future DLL that does, while still detecting
+            // unresolved name placeholders using the API available in today's binary.
+            var unresolvedProperty = resFile.GetType().GetProperty("UnresolvedExternalStringIDs");
+            var unresolvedValues = unresolvedProperty?.GetValue(resFile) as IEnumerable<long>;
+            var ids = unresolvedValues?.Distinct().ToList() ?? new List<long>();
 
-            MessageBox.Show($"{ids.Count} name(s) in {FileName} reference external string IDs that are not in " +
-                $"{MeshCodec.ExternalStringTablePath}.\n\nThey were loaded as ExtStr_<ID> placeholders: {list}\n\n" +
-                "If many names are missing, the string table is probably from a different game than this file.",
+            var placeholderNames = resFile.Models.Select(model => model.Name)
+                .Concat(resFile.Models.SelectMany(model => model.Materials).Select(material => material.Name))
+                .Where(name => !string.IsNullOrEmpty(name) &&
+                               name.StartsWith("ExtStr_", StringComparison.OrdinalIgnoreCase))
+                .Distinct()
+                .Take(6)
+                .ToList();
+
+            if (ids.Count == 0 && placeholderNames.Count == 0)
+                return;
+
+            string idInfo = ids.Count == 0 ? "" :
+                $"{ids.Count} unresolved external string IDs (first five): " +
+                string.Join(", ", ids.Take(5).Select(x => x.ToString("X16"))) + "\n";
+            string nameInfo = placeholderNames.Count == 0 ? "" :
+                "Detected unresolved model/material names: " +
+                string.Join(", ", placeholderNames) + "\n";
+
+            MessageBox.Show($"External names in {FileName} could not all be resolved.\n" +
+                idInfo + nameInfo +
+                $"String table: {MeshCodec.ExternalStringTablePath}\n\n" +
+                "Check that the string table is from the same game as this BFRES.",
                 "Unresolved external strings", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
