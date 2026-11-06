@@ -50,6 +50,15 @@ jobs:
           }
           if (Test-Path "$out/FirstPlugin.Plg.dll") {
             Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/Plugins/FirstPlugin.Plg.dll" -Force
+            # Replace stale pre-.NET 10 plugin copy under Lib/ with this CI-built assembly.
+            Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/FirstPlugin.Plg.dll" -Force
+          }
+          # The root DLLs come from restored NuGet DockPanelSuite 3.1.1.
+          # Keep the legacy Lib/ resolver from selecting tracked DockPanelSuite 3.0.6 DLLs.
+          foreach ($name in @('WeifenLuo.WinFormsUI.Docking.dll', 'WeifenLuo.WinFormsUI.Docking.ThemeVS2015.dll')) {
+            $src = Join-Path $out $name
+            if (!(Test-Path $src)) { throw "Expected restored NuGet assembly missing: $name" }
+            Copy-Item $src (Join-Path "$out/Lib" $name) -Force
           }
           if (Test-Path "$out/BrawlboxHelper.dll") {
             Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
