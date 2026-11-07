@@ -5,6 +5,10 @@ on:
     # GitHub schedules only run on the repository default branch.
     - cron: "14,24,34,44,54,4 * * * *"
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/net10-upstream-release.yml'
 
 permissions:
   contents: read
@@ -52,7 +56,7 @@ jobs:
           build_sha="$(git rev-parse HEAD)"
           tag="net10-${build_sha:0:12}"
           publish=false
-          if [[ "$changed" == true || "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+          if [[ "$changed" == true || "$GITHUB_EVENT_NAME" == workflow_dispatch || "$GITHUB_EVENT_NAME" == push ]]; then
             if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               publish=true
             fi
