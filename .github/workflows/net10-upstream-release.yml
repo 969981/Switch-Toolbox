@@ -96,10 +96,27 @@ jobs:
           }
           if (Test-Path "$out/FirstPlugin.Plg.dll") {
             Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/Plugins/FirstPlugin.Plg.dll" -Force
+            Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/FirstPlugin.Plg.dll" -Force
+          }
+          # Keep root and Lib DockPanelSuite binaries identical. The tracked Lib DLLs
+          # are legacy .NET Framework assemblies and must not shadow NuGet 3.1.1.
+          foreach ($name in @('WeifenLuo.WinFormsUI.Docking.dll', 'WeifenLuo.WinFormsUI.Docking.ThemeVS2015.dll')) {
+            $src = Join-Path $out $name
+            if (!(Test-Path -LiteralPath $src -PathType Leaf)) { throw "Missing NuGet DockPanelSuite binary: $name" }
+            Copy-Item -LiteralPath $src -Destination (Join-Path "$out/Lib" $name) -Force
           }
           if (Test-Path "$out/BrawlboxHelper.dll") {
             Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force
           }
+          # Use the same dependency normalization and binding gate as the
+          # migration CI; package only AFTER dependency checks have passed.
+          & ./Scripts/Normalize-Net10PublishedDependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/net10-resolved-dlls.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/net10-dependencies.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $nativeAssimp = "packages/AssimpNet.4.1.0/runtimes/win-x64/native/assimp.dll"
+          if (!(Test-Path $nativeAssimp)) { throw "Missing pinned Assimp x64 native dependency" }
+          Copy-Item $nativeAssimp (Join-Path $out 'assimp.dll') -Force
           Compress-Archive -Path "$out/*" -DestinationPath "$env:RUNNER_TEMP/Switch-Toolbox-net10-win-x64.zip" -Force
       - name: Published application runtime / plugin / file-format smoke
         shell: pwsh
