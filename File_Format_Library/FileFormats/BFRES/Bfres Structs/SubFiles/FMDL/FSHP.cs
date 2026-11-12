@@ -1064,9 +1064,25 @@ namespace Bfres.Structs
             if (ForceSkinCount && !ob.HasIndices && VertexSkinCount != 0 && !vertexAttributes.Any(x => x.Name == "_i0"))
             {
                 var attributeIndex = new FSHP.VertexAttribute();
-                attributeIndex.Format = ResGFX.AttribFormat.Format_8_8_8_8_UInt;
+                if (mdl.Skeleton.Node_Array.Length >= 255)
+                    attributeIndex.Format = ResGFX.AttribFormat.Format_8_8_8_8_UInt;
+                else
+                    attributeIndex.Format = ResGFX.AttribFormat.Format_16_16_16_16_UInt;
                 attributeIndex.Name = "_i0";
                 vertexAttributes.Add(attributeIndex);
+            }
+            // Add extra bone/weight attributes
+            if (VertexSkinCount > 4 && !vertexAttributes.Any(x => x.Name == "_i1"))
+            {
+                var attributeIndex = new FSHP.VertexAttribute();
+                attributeIndex.Format = ResGFX.AttribFormat.Format_8_8_8_8_UInt;
+                attributeIndex.Name = "_i1";
+                vertexAttributes.Add(attributeIndex);
+
+                var attributeWeight = new FSHP.VertexAttribute();
+                attributeWeight.Format = ResGFX.AttribFormat.Format_8_8_8_8_UNorm;
+                attributeWeight.Name = "_w1";
+                vertexAttributes.Add(attributeWeight);
             }
 
             //Check weights. If they are all 1. If they are then they aren't necessary
