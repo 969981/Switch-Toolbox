@@ -414,7 +414,7 @@ namespace FirstPlugin
                 if (fshp.VertexSkinCount == 1)
                 {
                     int boneIndex = fshp.BoneIndex;
-                    if (v.boneIds.Count > 0)
+                    if (v.boneIds.Count > 0 && v.boneIds[0] < model.Skeleton.Node_Array.Length)
                         boneIndex = model.Skeleton.Node_Array[v.boneIds[0]];
 
                     //Check if the bones are a rigid type
