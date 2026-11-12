@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="BrawlboxHelper/BrawlboxHelper.csproj" />
+  <Project Path="Switch_Toolbox_Library/Toolbox_Library.csproj" />
+  <Project Path="File_Format_Library/File_Format_Library.csproj" />
+  <Project Path="Updater/Updater.csproj" />
+  <Project Path="Toolbox/Toolbox.csproj" />
+</Solution>
