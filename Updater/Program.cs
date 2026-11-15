@@ -126,10 +126,21 @@ namespace Updater
         {
             try
             {
-                System.Security.AccessControl.DirectorySecurity sec = System.IO.Directory.GetAccessControl(directory);
                 FileSystemAccessRule accRule = new FileSystemAccessRule(Environment.UserDomainName + "\\" + Environment.UserName, FileSystemRights.FullControl, AccessControlType.Allow);
-                sec.AddAccessRule(accRule);
-                Directory.SetAccessControl(directory, sec);
+                if (Directory.Exists(directory))
+                {
+                    var directoryInfo = new DirectoryInfo(directory);
+                    var security = directoryInfo.GetAccessControl();
+                    security.AddAccessRule(accRule);
+                    directoryInfo.SetAccessControl(security);
+                }
+                else if (File.Exists(directory))
+                {
+                    var fileInfo = new FileInfo(directory);
+                    var security = fileInfo.GetAccessControl();
+                    security.AddAccessRule(accRule);
+                    fileInfo.SetAccessControl(security);
+                }
             }
             catch (Exception ex)
             {

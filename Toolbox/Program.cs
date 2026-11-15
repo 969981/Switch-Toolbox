@@ -22,6 +22,21 @@ namespace Toolbox
         static void Main()
         {
             AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolve;
+            if (Array.Exists(Environment.GetCommandLineArgs(), value => string.Equals(value, "--migration-smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.ExitCode = MigrationSmokeTests.Run();
+                return;
+            }
+            if (Array.Exists(Environment.GetCommandLineArgs(), value => string.Equals(value, "--migration-real-smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.ExitCode = RealResourceSmokeTests.Run();
+                return;
+            }
+            if (Array.Exists(Environment.GetCommandLineArgs(), value => string.Equals(value, "--migration-deep-smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.ExitCode = DeepMigrationTests.Run();
+                return;
+            }
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
@@ -193,7 +208,8 @@ namespace Toolbox
                 else
                 {
                     //Keep default loading
-                    return args.RequestingAssembly;
+                    // Returning the requesting assembly hides a missing dependency and can trigger TypeLoad failures.
+                    return null;
                 }
             }
 

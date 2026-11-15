@@ -37,7 +37,8 @@ namespace Toolbox.Library
             foreach (string dllFile in dllFileNames)
             {
                 AssemblyName an = AssemblyName.GetAssemblyName(dllFile);
-                Assembly assembly = Assembly.Load(an);
+                // Load the actual plugin in the distribution directory, not an unrelated GAC/host copy.
+                Assembly assembly = Assembly.LoadFrom(Path.GetFullPath(dllFile));
                 assemblies.Add(assembly);
             }
 

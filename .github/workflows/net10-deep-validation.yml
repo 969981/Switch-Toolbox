@@ -1,0 +1,67 @@
+name: Experimental .NET 10 deep runtime validation
+on:
+  push:
+    branches: [net10-slnx]
+    paths:
+      - 'Toolbox/DeepMigrationTests.cs'
+      - 'Toolbox/Program.cs'
+      - 'Toolbox/Toolbox.csproj'
+      - '.github/workflows/net10-deep-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: net10-deep-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  actual-runtime:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish real net10 executable
+        shell: pwsh
+        run: |
+          dotnet publish Toolbox/Toolbox.csproj -c Release -r win-x64 --self-contained false -o "$env:RUNNER_TEMP/Toolbox-net10"
+          if ($LASTEXITCODE -ne 0) { throw "Publish failed" }
+          $out = "$env:RUNNER_TEMP/Toolbox-net10"
+          New-Item -ItemType Directory -Path "$out/Lib/Plugins" -Force | Out-Null
+          Copy-Item Toolbox/Lib/* "$out/Lib/" -Recurse -Force
+          Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/Plugins/FirstPlugin.Plg.dll" -Force
+          Copy-Item "$out/FirstPlugin.Plg.dll" "$out/Lib/FirstPlugin.Plg.dll" -Force
+          foreach ($name in @('WeifenLuo.WinFormsUI.Docking.dll','WeifenLuo.WinFormsUI.Docking.ThemeVS2015.dll')) {
+            Copy-Item (Join-Path $out $name) (Join-Path "$out/Lib" $name) -Force
+          }
+          if (Test-Path "$out/BrawlboxHelper.dll") { Copy-Item "$out/BrawlboxHelper.dll" "$out/Lib/BrawlboxHelper.dll" -Force }
+          # Historical AssimpNet 4.1 does not automatically deploy its x64 native DLL
+          # when compiled from a direct SDK-style Assembly Reference. Test the pinned
+          # native package DLL in isolation, without upgrading AssimpNet.
+          $assimpNative = "packages/AssimpNet.4.1.0/runtimes/win-x64/native/assimp.dll"
+          if (!(Test-Path $assimpNative)) { throw "Pinned native Assimp DLL missing" }
+          Copy-Item $assimpNative (Join-Path $out 'assimp.dll') -Force
+          & ./Scripts/Normalize-Net10PublishedDependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/deep-normalized.json"
+          & ./Scripts/Audit-Net10Dependencies.ps1 -PublishDir $out -OutputPath "$env:RUNNER_TEMP/deep-dependencies.json"
+      - name: Download actual pinned SV/ZA fixtures
+        shell: pwsh
+        run: |
+          & ./Scripts/Fetch-Net10RealFixtures.ps1 -Destination "$env:RUNNER_TEMP/deep-fixtures"
+      - name: Pixel / OpenGL / Assimp / Syroot integration tests
+        shell: pwsh
+        timeout-minutes: 8
+        env:
+          NET10_REAL_FIXTURES_DIR: ${{ runner.temp }}/deep-fixtures
+        run: |
+          & dotnet "$env:RUNNER_TEMP/Toolbox-net10/Toolbox.dll" --migration-deep-smoke 2>&1 | Tee-Object "$env:RUNNER_TEMP/net10-deep-test.log"
+          if ($LASTEXITCODE -ne 0) { throw "Deep validation failed or unsupported, see log" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: net10-deep-diagnostics
+          path: |
+            ${{ runner.temp }}/net10-deep-test.log
+            ${{ runner.temp }}/deep-normalized.json
+            ${{ runner.temp }}/deep-dependencies.json
+          if-no-files-found: warn
