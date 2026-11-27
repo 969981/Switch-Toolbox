@@ -1,0 +1,80 @@
+name: Experimental .NET 10 - external SV Trinity glTF interoperability
+
+on:
+  push:
+    branches: [net10-slnx]
+    paths:
+      - 'Scripts/Verify-Net10TrinityInterop.py'
+      - '.github/workflows/net10-trinity-interop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: net10-trinity-interop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sv-trinity:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - name: Checkout experimental Switch-Toolbox test script
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned public SV samples and original gftool exporter
+        uses: actions/checkout@v4
+        with:
+          repository: 969981/SV_Resources
+          ref: 4a39af505143fd2991a1edf7576c1f22546043fa
+          path: sv-input
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            tools/gftool
+            tools/SV.R3.ModelExport
+            scripts/resource_pipeline/r3_objects.py
+            Unpack/4.0.0/romfs/arc/data.trpfs/virtual/pokemon/data/pm0025/pm0025_00_00
+            Unpack/4.0.0/romfs/arc/data.trpfs/virtual/chara/model_pc/p0_bag0000_schoolbackpack
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build independent original gftool-based headless glTF exporter
+        shell: pwsh
+        run: |
+          dotnet build sv-input/tools/SV.R3.ModelExport/SV.R3.ModelExport.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw "SV gftool model exporter build failed" }
+      - name: Verify real SV backpack geometry, LODs, skin and material-edit glTF reload
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'sv-input'
+          $folder = Join-Path $root 'Unpack/4.0.0/romfs/arc/data.trpfs/virtual/chara/model_pc/p0_bag0000_schoolbackpack'
+          $model = Join-Path $folder 'p0_bag0000_00_bag00.trmdl'
+          $out = Join-Path $env:RUNNER_TEMP 'net10-trinity-backpack.gltf'
+          $exe = Join-Path $root 'tools/SV.R3.ModelExport/bin/Release/net10.0-windows/SV.R3.ModelExport.exe'
+          & $exe $model $out
+          if ($LASTEXITCODE -ne 0) { throw "gftool backpack exporter failed" }
+          python sv-input/scripts/resource_pipeline/r3_objects.py --help | Out-Null
+          python Scripts/Verify-Net10TrinityInterop.py --gltf $out
+          if ($LASTEXITCODE -ne 0) { throw "Backpack interoperability validation failed" }
+      - name: Verify real SV Pokemon bones / animation / material-edit glTF reload
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'sv-input'
+          $folder = Join-Path $root 'Unpack/4.0.0/romfs/arc/data.trpfs/virtual/pokemon/data/pm0025/pm0025_00_00'
+          $model = Join-Path $folder 'pm0025_00_00.trmdl'
+          $anim = Join-Path $folder 'pm0025_00_00_00000_defaultwait01_loop.tranm'
+          $out = Join-Path $env:RUNNER_TEMP 'net10-trinity-pm0025.gltf'
+          $exe = Join-Path $root 'tools/SV.R3.ModelExport/bin/Release/net10.0-windows/SV.R3.ModelExport.exe'
+          & $exe $model $out --animation $anim
+          if ($LASTEXITCODE -ne 0) { throw "gftool Pokemon animation exporter failed" }
+          python Scripts/Verify-Net10TrinityInterop.py --gltf $out --require-animation
+          if ($LASTEXITCODE -ne 0) { throw "Pokemon interoperability validation failed" }
+      # Game-derived binary files and exported geometry must stay on the ephemeral runner.
+      # Do not upload assets or create a GitHub Release from this workflow.
